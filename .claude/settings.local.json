@@ -5,7 +5,10 @@
       "Bash(npm --version)",
       "Bash(npm install *)",
       "Bash(npx tsc *)",
-      "Bash(npm run *)"
+      "Bash(npm run *)",
+      "Bash(npx -y @21st-dev/magic@latest --help)",
+      "Bash(claude mcp *)",
+      "PowerShell(claude mcp add magic --scope user --env API_KEY=\"19c0ef43de5e492febe0a8e946f87e7dbadc1203f555c607b7dac1f351988880\" -- npx -y \"@21st-dev/magic@latest\")"
     ]
   }
 }

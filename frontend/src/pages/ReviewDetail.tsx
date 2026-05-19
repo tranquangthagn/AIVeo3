@@ -1,5 +1,6 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { toast } from "sonner";
 import {
   ArrowLeft,
   Check,
@@ -15,6 +16,8 @@ import {
   Wand2,
   X,
   AlertTriangle,
+  Inbox,
+  Loader2,
 } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { Button } from "@/components/ui/button";
@@ -25,9 +28,11 @@ import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { ScoreRing } from "@/components/review/score-ring";
 import { ScoreBadge, scoreLevel } from "@/components/review/score-badge";
-import { reviewQueue, type ScoreBreakdown } from "@/lib/mock-data";
+import { type ScoreBreakdown } from "@/lib/mock-data";
 import { cn, formatDuration } from "@/lib/utils";
 import { ShimmerButton } from "@/components/magicui/shimmer-button";
+import { useAppStore } from "@/store/use-app-store";
+import { suggestHashtags, regenerateScene, delay } from "@/lib/fake-api";
 
 const criteriaLabels: Record<keyof ScoreBreakdown, string> = {
   hook: "Hook (3s đầu)",
@@ -40,13 +45,109 @@ const criteriaLabels: Record<keyof ScoreBreakdown, string> = {
 export function ReviewDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const job = reviewQueue.find((v) => v.id === id) ?? reviewQueue[0];
+
+  const queue = useAppStore((s) => s.reviewQueue);
+  const approveJob = useAppStore((s) => s.approveJob);
+  const rejectJob = useAppStore((s) => s.rejectJob);
+  const saveJobDraft = useAppStore((s) => s.saveJobDraft);
+  const removeClip = useAppStore((s) => s.removeClip);
+
+  const job = queue.find((v) => v.id === id);
+  const currentIdx = queue.findIndex((v) => v.id === id);
+  const nextJob = queue[(currentIdx + 1) % Math.max(queue.length, 1)];
+
   const [musicVolume, setMusicVolume] = useState([30]);
   const [voiceSpeed, setVoiceSpeed] = useState([100]);
-  const [caption, setCaption] = useState(job.caption ?? "");
+  const [caption, setCaption] = useState(job?.caption ?? "");
+  const [hashtags, setHashtags] = useState<string[]>(job?.hashtags ?? []);
+  const [savingDraft, setSavingDraft] = useState(false);
+  const [suggesting, setSuggesting] = useState(false);
+  const [regenClipId, setRegenClipId] = useState<string | null>(null);
+  const [approving, setApproving] = useState(false);
 
-  const currentIdx = reviewQueue.findIndex((v) => v.id === job.id);
-  const nextJob = reviewQueue[(currentIdx + 1) % reviewQueue.length];
+  // Sync state when job changes
+  useEffect(() => {
+    setCaption(job?.caption ?? "");
+    setHashtags(job?.hashtags ?? []);
+  }, [job?.id]);
+
+  if (!job) {
+    return (
+      <div className="mx-auto max-w-2xl px-6 pt-24 text-center">
+        <Inbox className="mx-auto h-10 w-10 text-muted-foreground" />
+        <h2 className="mt-4 text-lg font-semibold">Video không tồn tại</h2>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Có thể đã được approve/reject hoặc bạn vào nhầm link.
+        </p>
+        <Button className="mt-4" onClick={() => navigate("/review")}>
+          <ArrowLeft className="h-4 w-4" /> Về Review queue
+        </Button>
+      </div>
+    );
+  }
+
+  const handleSuggestHashtags = async () => {
+    setSuggesting(true);
+    try {
+      const tags = await suggestHashtags(hashtags);
+      setHashtags([...hashtags, ...tags]);
+      toast.success(`AI gợi ý ${tags.length} hashtag mới`);
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
+  const handleRegenScene = async (clipId: string) => {
+    setRegenClipId(clipId);
+    try {
+      await regenerateScene();
+      toast.success("Scene đã được re-generate", { description: "Visual nhiễu đã được fix." });
+    } finally {
+      setRegenClipId(null);
+    }
+  };
+
+  const handleSaveDraft = async () => {
+    setSavingDraft(true);
+    try {
+      await delay(null, 500);
+      saveJobDraft(job.id, { caption, hashtags });
+      toast.success("Draft đã được lưu");
+    } finally {
+      setSavingDraft(false);
+    }
+  };
+
+  const handleApprove = async () => {
+    setApproving(true);
+    try {
+      await delay(null, 800);
+      saveJobDraft(job.id, { caption, hashtags });
+      approveJob(job.id);
+      toast.success("✅ Đã publish lên TikTok!", {
+        description: `${job.title} — sẽ live trong vài giây`,
+      });
+      if (queue.length > 1) {
+        navigate(`/review/${nextJob.id}`);
+      } else {
+        navigate("/review");
+      }
+    } finally {
+      setApproving(false);
+    }
+  };
+
+  const handleReject = () => {
+    rejectJob(job.id);
+    toast(`Đã reject ${job.id}`, {
+      description: "Video đã được lưu vào library với status rejected",
+    });
+    if (queue.length > 1) {
+      navigate(`/review/${nextJob.id}`);
+    } else {
+      navigate("/review");
+    }
+  };
 
   return (
     <>
@@ -54,12 +155,14 @@ export function ReviewDetailPage() {
         title={job.title}
         description={`Reviewing ${job.id} · AI Score ${job.aiScore}`}
         actions={
-          <Link to={`/review/${nextJob.id}`}>
-            <Button variant="outline" size="sm">
-              Skip
-              <ChevronRight className="h-4 w-4" />
-            </Button>
-          </Link>
+          queue.length > 1 ? (
+            <Link to={`/review/${nextJob.id}`}>
+              <Button variant="outline" size="sm">
+                Skip
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </Link>
+          ) : null
         }
       />
 
@@ -75,12 +178,24 @@ export function ReviewDetailPage() {
         </Button>
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
-          {/* Left: video + custom tools */}
           <div className="space-y-4">
             <VideoPreview job={job} />
-            <CaptionEditor value={caption} onChange={setCaption} />
+            <CaptionEditor
+              value={caption}
+              onChange={setCaption}
+              hashtags={hashtags}
+              setHashtags={setHashtags}
+              onSuggest={handleSuggestHashtags}
+              suggesting={suggesting}
+            />
             <CustomTools
               clips={job.clips ?? []}
+              regenClipId={regenClipId}
+              onRegen={handleRegenScene}
+              onRemove={(clipId) => {
+                removeClip(job.id, clipId);
+                toast(`Clip đã được xoá`);
+              }}
               musicVolume={musicVolume}
               setMusicVolume={setMusicVolume}
               voiceSpeed={voiceSpeed}
@@ -88,30 +203,44 @@ export function ReviewDetailPage() {
             />
           </div>
 
-          {/* Right: AI Score + suggestions */}
           <div className="space-y-4 lg:sticky lg:top-20 self-start">
             <AIScorePanel job={job} />
             <PublishPanel />
           </div>
         </div>
 
-        {/* Footer actions */}
         <div className="sticky bottom-0 mt-8 -mx-6 border-t border-border bg-background/95 backdrop-blur-xl px-6 py-3">
           <div className="mx-auto flex max-w-7xl items-center justify-end gap-2">
-            <Button variant="ghost" size="sm">
+            <Button variant="ghost" size="sm" onClick={handleReject}>
               <Trash2 className="h-4 w-4" />
               Reject
             </Button>
-            <Button variant="outline" size="sm">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => toast.info("Re-generate full video — pipeline đã queue")}
+            >
               <RefreshCw className="h-4 w-4" />
               Re-generate all
             </Button>
-            <Button variant="outline" size="sm">
-              <Save className="h-4 w-4" />
+            <Button variant="outline" size="sm" disabled={savingDraft} onClick={handleSaveDraft}>
+              {savingDraft ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
               Save draft
             </Button>
-            <ShimmerButton className="text-sm">
-              <Check className="h-3.5 w-3.5" />
+            <ShimmerButton
+              className="text-sm"
+              onClick={handleApprove}
+              disabled={approving}
+            >
+              {approving ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Check className="h-3.5 w-3.5" />
+              )}
               Approve & Publish
             </ShimmerButton>
           </div>
@@ -121,7 +250,7 @@ export function ReviewDetailPage() {
   );
 }
 
-function VideoPreview({ job }: { job: (typeof reviewQueue)[number] }) {
+function VideoPreview({ job }: { job: { thumbnail: string; duration: number } }) {
   return (
     <Card className="overflow-hidden">
       <div className="flex gap-4 p-4">
@@ -152,19 +281,41 @@ function VideoPreview({ job }: { job: (typeof reviewQueue)[number] }) {
   );
 }
 
-function CaptionEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function CaptionEditor({
+  value,
+  onChange,
+  hashtags,
+  setHashtags,
+  onSuggest,
+  suggesting,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  hashtags: string[];
+  setHashtags: (h: string[]) => void;
+  onSuggest: () => void;
+  suggesting: boolean;
+}) {
   return (
     <Card>
       <div className="flex items-center justify-between border-b border-border px-4 py-2.5">
         <div className="flex items-center gap-2">
           <Pencil className="h-3.5 w-3.5 text-muted-foreground" />
           <span className="text-sm font-semibold">Caption</span>
-          <span className="font-mono text-[10px] text-muted-foreground">
-            {value.length}/150
-          </span>
+          <span className="font-mono text-[10px] text-muted-foreground">{value.length}/150</span>
         </div>
-        <Button variant="ghost" size="sm" className="h-7 text-xs">
-          <Sparkles className="h-3 w-3" />
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={onSuggest}
+          disabled={suggesting}
+        >
+          {suggesting ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Sparkles className="h-3 w-3" />
+          )}
           Suggest hashtag
         </Button>
       </div>
@@ -177,9 +328,15 @@ function CaptionEditor({ value, onChange }: { value: string; onChange: (v: strin
           className="w-full resize-none rounded-md border border-input bg-transparent p-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {["#ai", "#productivity", "#aivietnam", "#fyp", "#tech2026"].map((tag) => (
-            <Badge key={tag} variant="secondary" className="cursor-pointer hover:bg-primary/15">
+          {hashtags.map((tag) => (
+            <Badge
+              key={tag}
+              variant="secondary"
+              className="cursor-pointer hover:bg-destructive/15 hover:text-destructive group"
+              onClick={() => setHashtags(hashtags.filter((t) => t !== tag))}
+            >
               {tag}
+              <X className="ml-0.5 h-2.5 w-2.5 opacity-0 group-hover:opacity-100" />
             </Badge>
           ))}
         </div>
@@ -190,12 +347,18 @@ function CaptionEditor({ value, onChange }: { value: string; onChange: (v: strin
 
 function CustomTools({
   clips,
+  regenClipId,
+  onRegen,
+  onRemove,
   musicVolume,
   setMusicVolume,
   voiceSpeed,
   setVoiceSpeed,
 }: {
-  clips: (typeof reviewQueue)[number]["clips"];
+  clips: NonNullable<ReturnType<typeof useAppStore.getState>["reviewQueue"][number]["clips"]>;
+  regenClipId: string | null;
+  onRegen: (id: string) => void;
+  onRemove: (id: string) => void;
   musicVolume: number[];
   setMusicVolume: (v: number[]) => void;
   voiceSpeed: number[];
@@ -217,51 +380,74 @@ function CustomTools({
         </TabsList>
         <TabsContent value="timeline" className="mt-4">
           <div className="flex items-stretch gap-1.5 overflow-x-auto pb-2 scrollbar-thin">
-            {(clips ?? []).map((clip) => (
-              <div
-                key={clip.id}
-                className={cn(
-                  "group relative flex h-24 w-20 shrink-0 cursor-pointer flex-col overflow-hidden rounded-md border-2 transition-all",
-                  clip.warning
-                    ? "border-warning/60 hover:border-warning"
-                    : "border-border hover:border-primary/50",
-                )}
-              >
-                <img src={clip.thumbnail} alt="" className="h-full w-full object-cover" />
-                <div className="absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent px-1.5 py-0.5">
-                  <span className="font-mono text-[9px] text-white font-semibold">
-                    {clip.index}
-                  </span>
-                  {clip.warning ? <AlertTriangle className="h-2.5 w-2.5 text-warning" /> : null}
+            {clips.map((clip) => {
+              const isRegenerating = regenClipId === clip.id;
+              return (
+                <div
+                  key={clip.id}
+                  className={cn(
+                    "group relative flex h-24 w-20 shrink-0 cursor-pointer flex-col overflow-hidden rounded-md border-2 transition-all",
+                    clip.warning
+                      ? "border-warning/60 hover:border-warning"
+                      : "border-border hover:border-primary/50",
+                  )}
+                >
+                  <img src={clip.thumbnail} alt="" className="h-full w-full object-cover" />
+                  <div className="absolute inset-x-0 top-0 flex items-center justify-between bg-gradient-to-b from-black/80 to-transparent px-1.5 py-0.5">
+                    <span className="font-mono text-[9px] text-white font-semibold">
+                      {clip.index}
+                    </span>
+                    {clip.warning ? <AlertTriangle className="h-2.5 w-2.5 text-warning" /> : null}
+                  </div>
+                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-1.5 py-0.5">
+                    <span className="font-mono text-[9px] text-white">{clip.duration}s</span>
+                  </div>
+                  <div
+                    className={cn(
+                      "absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/70 transition-opacity",
+                      isRegenerating ? "opacity-100" : "opacity-0 group-hover:opacity-100",
+                    )}
+                  >
+                    {isRegenerating ? (
+                      <>
+                        <Loader2 className="h-4 w-4 text-white animate-spin" />
+                        <span className="text-[9px] text-white">Re-gen...</span>
+                      </>
+                    ) : (
+                      <>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onRegen(clip.id);
+                          }}
+                          className="rounded bg-white/20 px-1.5 py-0.5 text-[9px] text-white hover:bg-white/30"
+                        >
+                          Re-gen
+                        </button>
+                        <button
+                          onClick={(e) => {
+                            e.preventDefault();
+                            onRemove(clip.id);
+                          }}
+                          className="rounded bg-destructive/30 px-1.5 py-0.5 text-[9px] text-white hover:bg-destructive/50"
+                        >
+                          Remove
+                        </button>
+                      </>
+                    )}
+                  </div>
                 </div>
-                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-1.5 py-0.5">
-                  <span className="font-mono text-[9px] text-white">{clip.duration}s</span>
-                </div>
-                <div className="absolute inset-0 hidden items-center justify-center bg-black/60 group-hover:flex">
-                  <RefreshCw className="h-4 w-4 text-white" />
-                </div>
-              </div>
-            ))}
-            <button className="h-24 w-20 shrink-0 rounded-md border-2 border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors grid place-items-center">
+              );
+            })}
+            <button
+              onClick={() => toast.info("Add scene chưa được hỗ trợ ở MVP")}
+              className="h-24 w-20 shrink-0 rounded-md border-2 border-dashed border-border text-muted-foreground hover:border-primary/50 hover:text-foreground transition-colors grid place-items-center"
+            >
               <span className="text-2xl">+</span>
             </button>
           </div>
-          <div className="mt-3 flex flex-wrap items-center gap-2">
-            <Button variant="outline" size="sm" className="h-7 text-xs">
-              <Pencil className="h-3 w-3" />
-              Trim
-            </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs">
-              Reorder
-            </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs">
-              <RefreshCw className="h-3 w-3" />
-              Re-gen scene
-            </Button>
-            <Button variant="outline" size="sm" className="h-7 text-xs">
-              <X className="h-3 w-3" />
-              Remove
-            </Button>
+          <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+            <span>{clips.length} scene · tổng {clips.reduce((s, c) => s + c.duration, 0)}s</span>
           </div>
         </TabsContent>
         <TabsContent value="audio" className="mt-4 space-y-4">
@@ -291,7 +477,12 @@ function CustomTools({
             <p className="text-xs text-muted-foreground">
               Thêm text overlay, sticker, logo lên video
             </p>
-            <Button variant="outline" size="sm" className="mt-3 h-7 text-xs">
+            <Button
+              variant="outline"
+              size="sm"
+              className="mt-3 h-7 text-xs"
+              onClick={() => toast.info("Overlay editor sẽ có ở phase 2")}
+            >
               + Add overlay
             </Button>
           </div>
@@ -343,7 +534,11 @@ function AudioRow({
   );
 }
 
-function AIScorePanel({ job }: { job: (typeof reviewQueue)[number] }) {
+function AIScorePanel({
+  job,
+}: {
+  job: ReturnType<typeof useAppStore.getState>["reviewQueue"][number];
+}) {
   const breakdown = job.scoreBreakdown;
   if (!breakdown) return null;
   const level = scoreLevel(job.aiScore);

@@ -1,6 +1,19 @@
+import * as React from "react";
 import { Outlet } from "react-router-dom";
 import { Sidebar } from "./sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { Toaster } from "@/components/ui/sonner";
+import { CommandPalette } from "./command-palette";
+import { useAppStore } from "@/store/use-app-store";
+
+function PipelineTicker() {
+  const tick = useAppStore((s) => s.tickPipeline);
+  React.useEffect(() => {
+    const t = setInterval(tick, 1500);
+    return () => clearInterval(t);
+  }, [tick]);
+  return null;
+}
 
 export function AppShell() {
   return (
@@ -11,6 +24,9 @@ export function AppShell() {
           <Outlet />
         </main>
       </div>
+      <Toaster />
+      <CommandPalette />
+      <PipelineTicker />
     </TooltipProvider>
   );
 }

@@ -1,5 +1,6 @@
 import { useState } from "react";
-import { Save, Play } from "lucide-react";
+import { toast } from "sonner";
+import { Save, Play, Loader2 } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
@@ -8,9 +9,41 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
+import { useAppStore } from "@/store/use-app-store";
+import { delay } from "@/lib/fake-api";
+
+const tones = ["Formal", "Casual", "Funny", "Edu"] as const;
+const dayLabels: Record<string, string> = {
+  mon: "M",
+  tue: "T",
+  wed: "W",
+  thu: "T",
+  fri: "F",
+  sat: "S",
+  sun: "S",
+};
 
 export function PipelineConfigPage() {
-  const [days, setDays] = useState({ mon: true, tue: true, wed: true, thu: true, fri: true, sat: false, sun: false });
+  const config = useAppStore((s) => s.config);
+  const setConfig = useAppStore((s) => s.setConfig);
+  const generateNow = useAppStore((s) => s.generateNow);
+  const [saving, setSaving] = useState(false);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await delay(null, 500);
+      toast.success("Config đã được lưu");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSaveAndRun = async () => {
+    await handleSave();
+    generateNow();
+    toast.success("Pipeline đã trigger 1 video mới");
+  };
 
   return (
     <>
@@ -21,11 +54,11 @@ export function PipelineConfigPage() {
           description="Cấu hình cách AI agent tạo content"
           actions={
             <>
-              <Button variant="outline" size="sm">
-                <Save className="h-4 w-4" />
+              <Button variant="outline" size="sm" disabled={saving} onClick={handleSave}>
+                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 Save
               </Button>
-              <Button size="sm">
+              <Button size="sm" onClick={handleSaveAndRun}>
                 <Play className="h-4 w-4" />
                 Save & Run now
               </Button>
@@ -36,18 +69,25 @@ export function PipelineConfigPage() {
         <div className="space-y-4">
           <Section title="🎯 Niche & Style">
             <Field label="Niche" hint="Topic chính agent sẽ tập trung">
-              <Input defaultValue="Công nghệ AI, productivity tools" />
+              <Input
+                value={config.niche}
+                onChange={(e) => setConfig({ niche: e.target.value })}
+              />
             </Field>
             <Field label="Target audience">
-              <Input defaultValue="GenZ Việt Nam 18-30, tech enthusiast" />
+              <Input
+                value={config.audience}
+                onChange={(e) => setConfig({ audience: e.target.value })}
+              />
             </Field>
             <Field label="Tone">
               <div className="flex gap-2">
-                {["Formal", "Casual", "Funny", "Edu"].map((t, i) => (
+                {tones.map((t) => (
                   <button
                     key={t}
+                    onClick={() => setConfig({ tone: t })}
                     className={`rounded-md border px-3 py-1.5 text-xs ${
-                      i === 1
+                      config.tone === t
                         ? "border-primary/50 bg-primary/10 text-primary"
                         : "border-border hover:bg-accent"
                     }`}
@@ -64,7 +104,11 @@ export function PipelineConfigPage() {
                     {c}
                   </Badge>
                 ))}
-                <Badge variant="outline" className="cursor-pointer">
+                <Badge
+                  variant="outline"
+                  className="cursor-pointer"
+                  onClick={() => toast.info("Chức năng add channel sẽ có ở phase 2")}
+                >
                   + add
                 </Badge>
               </div>
@@ -74,37 +118,64 @@ export function PipelineConfigPage() {
           <Section title="⏰ Schedule">
             <Field label="Mode">
               <div className="flex items-center gap-2 text-sm">
-                <Switch defaultChecked />
-                <span>Auto cron schedule</span>
+                <Switch
+                  checked={!config.paused}
+                  onCheckedChange={(v) => setConfig({ paused: !v })}
+                />
+                <span>{config.paused ? "Pipeline đang paused" : "Auto cron đang chạy"}</span>
               </div>
             </Field>
             <Field label="Slots">
-              <div className="flex gap-2">
-                <Input defaultValue="08:00" className="w-24" />
-                <Input defaultValue="14:00" className="w-24" />
-                <Button variant="outline" size="sm" className="h-9">
+              <div className="flex flex-wrap gap-2">
+                {config.slots.map((slot, i) => (
+                  <Input
+                    key={i}
+                    value={slot}
+                    onChange={(e) => {
+                      const next = [...config.slots];
+                      next[i] = e.target.value;
+                      setConfig({ slots: next });
+                    }}
+                    className="w-24"
+                  />
+                ))}
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9"
+                  onClick={() => setConfig({ slots: [...config.slots, "12:00"] })}
+                >
                   + add
                 </Button>
               </div>
             </Field>
             <Field label="Days">
               <div className="flex gap-1.5">
-                {Object.entries(days).map(([k, v]) => (
+                {(Object.keys(config.days) as Array<keyof typeof config.days>).map((k) => (
                   <button
                     key={k}
-                    onClick={() => setDays({ ...days, [k]: !v })}
+                    onClick={() => setConfig({ days: { ...config.days, [k]: !config.days[k] } })}
                     className={`h-9 w-9 rounded-md border text-xs font-medium uppercase ${
-                      v ? "bg-primary/10 border-primary/50 text-primary" : "border-border"
+                      config.days[k]
+                        ? "bg-primary/10 border-primary/50 text-primary"
+                        : "border-border"
                     }`}
                   >
-                    {k[0]}
+                    {dayLabels[k]}
                   </button>
                 ))}
               </div>
             </Field>
             <Field label="Quota">
               <div className="flex items-center gap-2 text-sm">
-                Max <Input defaultValue="5" className="w-16" /> video / ngày
+                Max{" "}
+                <Input
+                  type="number"
+                  value={config.quota}
+                  onChange={(e) => setConfig({ quota: Number(e.target.value) })}
+                  className="w-16"
+                />{" "}
+                video / ngày
               </div>
             </Field>
           </Section>

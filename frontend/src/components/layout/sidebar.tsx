@@ -10,24 +10,22 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { reviewQueue, channels } from "@/lib/mock-data";
-
-const nav = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
-  { to: "/pipeline", label: "Pipeline", icon: Workflow },
-  {
-    to: "/review",
-    label: "Review",
-    icon: CheckSquare,
-    badge: reviewQueue.length,
-  },
-  { to: "/library", label: "Library", icon: Library },
-  { to: "/analytics", label: "Analytics", icon: BarChart3 },
-  { to: "/settings", label: "Settings", icon: Settings },
-];
+import { useAppStore } from "@/store/use-app-store";
+import { channels } from "@/lib/mock-data";
 
 export function Sidebar() {
+  const pendingCount = useAppStore((s) => s.reviewQueue.length);
+  const paused = useAppStore((s) => s.config.paused);
   const channel = channels[0];
+
+  const nav = [
+    { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true },
+    { to: "/pipeline", label: "Pipeline", icon: Workflow },
+    { to: "/review", label: "Review", icon: CheckSquare, badge: pendingCount },
+    { to: "/library", label: "Library", icon: Library },
+    { to: "/analytics", label: "Analytics", icon: BarChart3 },
+    { to: "/settings", label: "Settings", icon: Settings },
+  ];
 
   return (
     <aside className="hidden md:flex h-screen w-60 shrink-0 flex-col border-r border-border bg-card/40 backdrop-blur-xl">
@@ -85,10 +83,17 @@ export function Sidebar() {
                 {channel.handle} · {(channel.followers / 1000).toFixed(1)}k
               </p>
             </div>
-            <div className="h-1.5 w-1.5 rounded-full bg-success animate-pulse" />
+            <div
+              className={cn(
+                "h-1.5 w-1.5 rounded-full",
+                paused ? "bg-warning" : "bg-success animate-pulse",
+              )}
+            />
           </div>
         </div>
-        <p className="mt-2 text-center text-[10px] text-muted-foreground">v0.0.1 · MVP build</p>
+        <p className="mt-2 text-center text-[10px] text-muted-foreground">
+          {paused ? "Pipeline paused" : "Pipeline running"} · v0.0.1
+        </p>
       </div>
     </aside>
   );
