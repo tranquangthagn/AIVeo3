@@ -4,14 +4,15 @@ import { Sidebar } from "./sidebar";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/sonner";
 import { CommandPalette } from "./command-palette";
-import { useAppStore } from "@/store/use-app-store";
+import { api } from "@/lib/api";
 
 function PipelineTicker() {
-  const tick = useAppStore((s) => s.tickPipeline);
   React.useEffect(() => {
-    const t = setInterval(tick, 1500);
+    const t = setInterval(() => {
+      api.tickPipeline().catch(() => {});
+    }, 1500);
     return () => clearInterval(t);
-  }, [tick]);
+  }, []);
   return null;
 }
 

@@ -1,11 +1,16 @@
 import { motion } from "framer-motion";
-import { Pause, X, Sparkles, Play, Inbox } from "lucide-react";
+import { Pause, X, Sparkles, Play, Inbox, Loader2 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { type JobStatus } from "@/lib/mock-data";
-import { useAppStore } from "@/store/use-app-store";
 import { toast } from "sonner";
+import {
+  useConfigQuery,
+  useLiveJobsQuery,
+  usePausePipeline,
+  useResumePipeline,
+} from "@/lib/queries";
 
 const stageLabels: Record<JobStatus, string> = {
   queued: "Queued",
@@ -22,10 +27,11 @@ const stageLabels: Record<JobStatus, string> = {
 };
 
 export function LivePipeline() {
-  const jobs = useAppStore((s) => s.livePipeline);
-  const paused = useAppStore((s) => s.config.paused);
-  const pause = useAppStore((s) => s.pausePipeline);
-  const resume = useAppStore((s) => s.resumePipeline);
+  const { data: jobs = [], isLoading } = useLiveJobsQuery();
+  const { data: config } = useConfigQuery();
+  const paused = config?.paused ?? false;
+  const pauseM = usePausePipeline();
+  const resumeM = useResumePipeline();
 
   return (
     <Card className="overflow-hidden">
@@ -52,11 +58,9 @@ export function LivePipeline() {
           className="h-7 text-xs"
           onClick={() => {
             if (paused) {
-              resume();
-              toast.success("Pipeline đã resume");
+              resumeM.mutate(undefined, { onSuccess: () => toast.success("Pipeline đã resume") });
             } else {
-              pause();
-              toast("Pipeline paused");
+              pauseM.mutate(undefined, { onSuccess: () => toast("Pipeline paused") });
             }
           }}
         >
@@ -64,7 +68,11 @@ export function LivePipeline() {
           {paused ? "Resume" : "Pause"}
         </Button>
       </div>
-      {jobs.length === 0 ? (
+      {isLoading ? (
+        <div className="p-8 text-center text-muted-foreground">
+          <Loader2 className="mx-auto h-5 w-5 animate-spin" />
+        </div>
+      ) : jobs.length === 0 ? (
         <div className="p-8 text-center">
           <Inbox className="mx-auto h-8 w-8 text-muted-foreground" />
           <p className="mt-2 text-sm">Không có job đang chạy</p>

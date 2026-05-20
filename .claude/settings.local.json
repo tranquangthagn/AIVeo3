@@ -8,7 +8,32 @@
       "Bash(npm run *)",
       "Bash(npx -y @21st-dev/magic@latest --help)",
       "Bash(claude mcp *)",
-      "PowerShell(claude mcp add magic --scope user --env API_KEY=\"19c0ef43de5e492febe0a8e946f87e7dbadc1203f555c607b7dac1f351988880\" -- npx -y \"@21st-dev/magic@latest\")"
+      "PowerShell(claude mcp add magic --scope user --env API_KEY=\"19c0ef43de5e492febe0a8e946f87e7dbadc1203f555c607b7dac1f351988880\" -- npx -y \"@21st-dev/magic@latest\")",
+      "Bash(docker --version)",
+      "Bash(docker compose *)",
+      "Bash(curl -s http://127.0.0.1:8000/health)",
+      "Bash(curl -s \"http://127.0.0.1:8000/api/jobs?status=review&sort=score_desc&limit=5\")",
+      "Bash(curl -s -X POST -H \"Content-Type: application/json\" -d '{}' http://127.0.0.1:8000/api/jobs/job-1247/approve)",
+      "Bash(curl -s \"http://127.0.0.1:8000/api/jobs?status=review\")",
+      "Bash(python -c \"import sys, json; data = json.load\\(sys.stdin\\); print\\(f'Review queue now: {len\\(data\\)} jobs'\\)\")",
+      "Bash(py -c \"import sys, json; data = json.load\\(sys.stdin\\); print\\(f'Review queue now: {len\\(data\\)} jobs'\\)\")",
+      "Bash(curl -s \"http://127.0.0.1:8000/api/jobs?status=published,approved,rejected\")",
+      "Bash(py -c \"import sys, json; data = json.load\\(sys.stdin\\); print\\(f'Library jobs: {len\\(data\\)}'\\); print\\('  ', [\\(j['id'], j['status']\\) for j in data]\\)\")",
+      "Bash(curl -s --max-time 2 http://localhost:8000/health)",
+      "Bash(curl -s --max-time 2 http://localhost:5173)",
+      "Bash(./.venv/Scripts/python.exe -m uvicorn app.main:app --port 8000 --host 127.0.0.1)",
+      "Bash(curl -s --max-time 3 http://localhost:8000/health)",
+      "Bash(curl -s --max-time 3 -o /dev/null -w \"HTTP %{http_code}\\\\n\" http://localhost:5173)",
+      "Bash(curl -s -o /dev/null -w \"BE before: %{http_code}\\\\n\" --max-time 2 http://localhost:8000/health)",
+      "Bash(curl -s -o /dev/null -w \"FE before: %{http_code}\\\\n\" --max-time 2 http://localhost:5173)",
+      "Bash(curl -s -o /dev/null -w \"BE: %{http_code}\\\\n\" --max-time 3 http://localhost:8000/health)",
+      "Bash(curl -s -o /dev/null -w \"FE: %{http_code}\\\\n\" --max-time 3 http://localhost:5173)",
+      "Bash(curl -s -o /dev/null -w \"BE: %{http_code} · FE: \" --max-time 2 http://localhost:8000/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" --max-time 2 http://localhost:5173)",
+      "PowerShell($ports = @\\(8000, 5173\\); foreach \\($p in $ports\\) { $procs = Get-NetTCPConnection -LocalPort $p -State Listen -ErrorAction SilentlyContinue | Select-Object -ExpandProperty OwningProcess -Unique; foreach \\($pid in $procs\\) { try { Stop-Process -Id $pid -Force -ErrorAction Stop; Write-Host \"Killed PID $pid on port $p\" } catch { Write-Host \"PID $pid already gone\" } } })",
+      "PowerShell(Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { $procId = $_.OwningProcess; try { Stop-Process -Id $procId -Force -ErrorAction Stop; Write-Host \"Killed reload child PID $procId\" } catch { Write-Host \"$procId gone\" } }; Start-Sleep 2; if \\(Get-NetTCPConnection -LocalPort 8000 -State Listen -ErrorAction SilentlyContinue\\) { Write-Host \"Port 8000 STILL UP\" } else { Write-Host \"Port 8000 free\" })",
+      "Bash(curl -s -o /dev/null -w \"BE: %{http_code}\\\\nFE: \" --max-time 3 http://localhost:8000/health)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\\\\n\" --max-time 3 http://localhost:5173)"
     ]
   }
 }

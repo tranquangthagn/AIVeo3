@@ -1,6 +1,5 @@
-import { useMemo } from "react";
 import { Link } from "react-router-dom";
-import { ChevronRight, Clock, Search, ArrowUpDown, Inbox } from "lucide-react";
+import { ChevronRight, Clock, Search, ArrowUpDown, Inbox, Loader2 } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { PageHeader } from "@/components/layout/page-header";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +8,8 @@ import { Input } from "@/components/ui/input";
 import { ScoreBadge } from "@/components/review/score-badge";
 import { type Verdict } from "@/lib/mock-data";
 import { timeAgo, cn } from "@/lib/utils";
-import { useAppStore, sortJobs, type SortKey, type VerdictFilter } from "@/store/use-app-store";
+import { useAppStore, type SortKey, type VerdictFilter } from "@/store/use-app-store";
+import { useJobsQuery } from "@/lib/queries";
 
 const verdictLabel: Record<Verdict, { label: string; cls: string }> = {
   approve_recommended: { label: "Recommend approve", cls: "bg-success/15 text-success" },
@@ -32,7 +32,6 @@ const verdictFilters: { key: VerdictFilter; label: string }[] = [
 ];
 
 export function ReviewInboxPage() {
-  const queue = useAppStore((s) => s.reviewQueue);
   const sort = useAppStore((s) => s.reviewSort);
   const verdict = useAppStore((s) => s.reviewVerdict);
   const search = useAppStore((s) => s.reviewSearch);
@@ -40,24 +39,16 @@ export function ReviewInboxPage() {
   const setVerdict = useAppStore((s) => s.setReviewVerdict);
   const setSearch = useAppStore((s) => s.setReviewSearch);
 
-  const filtered = useMemo(() => {
-    let list = queue;
-    if (verdict !== "all") list = list.filter((j) => j.verdict === verdict);
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (j) =>
-          j.title.toLowerCase().includes(q) ||
-          j.topic.toLowerCase().includes(q) ||
-          j.id.toLowerCase().includes(q),
-      );
-    }
-    return sortJobs(list, sort);
-  }, [queue, sort, verdict, search]);
+  const { data: jobs = [], isLoading } = useJobsQuery({
+    status: "review",
+    verdict: verdict === "all" ? undefined : verdict,
+    search: search.trim() || undefined,
+    sort,
+  });
 
   return (
     <>
-      <Topbar title="Review queue" description={`${queue.length} video chờ duyệt`} />
+      <Topbar title="Review queue" description={`${jobs.length} video chờ duyệt`} />
       <div className="mx-auto max-w-7xl px-6 pb-12 pt-2">
         <PageHeader
           title="Review queue"
@@ -108,11 +99,15 @@ export function ReviewInboxPage() {
           </div>
         </div>
 
-        {filtered.length === 0 ? (
-          <EmptyState search={search} hasQueue={queue.length > 0} />
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+          </div>
+        ) : jobs.length === 0 ? (
+          <EmptyState search={search} />
         ) : (
           <div className="grid grid-cols-1 gap-3">
-            {filtered.map((job) => {
+            {jobs.map((job) => {
               const v = job.verdict ? verdictLabel[job.verdict] : null;
               return (
                 <Link key={job.id} to={`/review/${job.id}`}>
@@ -184,21 +179,15 @@ export function ReviewInboxPage() {
   );
 }
 
-function EmptyState({ search, hasQueue }: { search: string; hasQueue: boolean }) {
+function EmptyState({ search }: { search: string }) {
   return (
     <div className="rounded-lg border border-dashed border-border bg-card/40 p-12 text-center">
       <Inbox className="mx-auto h-10 w-10 text-muted-foreground" />
       <p className="mt-3 text-sm font-medium">
-        {hasQueue
-          ? search
-            ? "Không có video nào khớp với filter"
-            : "Không có video nào khớp với filter"
-          : "Tất cả video đã được duyệt — quay lại sau"}
+        {search ? "Không có video nào khớp với search" : "Không có video nào trong queue"}
       </p>
       <p className="mt-1 text-xs text-muted-foreground">
-        {hasQueue
-          ? "Đổi filter hoặc tìm từ khoá khác"
-          : "Agent sẽ tự gen video mới theo lịch"}
+        {search ? "Đổi filter hoặc tìm từ khoá khác" : "Agent sẽ tự gen video mới theo lịch"}
       </p>
     </div>
   );

@@ -19,17 +19,25 @@ import {
   CommandItem,
   CommandShortcut,
 } from "@/components/ui/command";
-import { useAppStore } from "@/store/use-app-store";
+import {
+  useConfigQuery,
+  useGenerateNow,
+  useJobsQuery,
+  usePausePipeline,
+  useResumePipeline,
+} from "@/lib/queries";
 import { toast } from "sonner";
 
 export function CommandPalette() {
   const [open, setOpen] = React.useState(false);
   const navigate = useNavigate();
-  const reviewQueue = useAppStore((s) => s.reviewQueue);
-  const generateNow = useAppStore((s) => s.generateNow);
-  const paused = useAppStore((s) => s.config.paused);
-  const pausePipeline = useAppStore((s) => s.pausePipeline);
-  const resumePipeline = useAppStore((s) => s.resumePipeline);
+  const { data: reviewQueue = [] } = useJobsQuery({ status: "review" });
+  const { data: config } = useConfigQuery();
+  const paused = config?.paused ?? false;
+
+  const generate = useGenerateNow();
+  const pauseM = usePausePipeline();
+  const resumeM = useResumePipeline();
 
   React.useEffect(() => {
     const down = (e: KeyboardEvent) => {
@@ -55,7 +63,6 @@ export function CommandPalette() {
         <CommandGroup heading="Trang">
           <CommandItem onSelect={() => go("/")}>
             <LayoutDashboard /> Dashboard
-            <CommandShortcut>G D</CommandShortcut>
           </CommandItem>
           <CommandItem onSelect={() => go("/pipeline")}>
             <Workflow /> Pipeline Config
@@ -79,8 +86,15 @@ export function CommandPalette() {
           <CommandItem
             onSelect={() => {
               setOpen(false);
-              generateNow();
-              toast.success("Đã queue 1 video mới", { description: "Pipeline bắt đầu generate idea..." });
+              generate.mutate(
+                {},
+                {
+                  onSuccess: () =>
+                    toast.success("Đã queue 1 video mới", {
+                      description: "Pipeline bắt đầu generate idea...",
+                    }),
+                },
+              );
             }}
           >
             <Play /> Gen video ngay
@@ -89,8 +103,9 @@ export function CommandPalette() {
             <CommandItem
               onSelect={() => {
                 setOpen(false);
-                resumePipeline();
-                toast.success("Pipeline đã resume");
+                resumeM.mutate(undefined, {
+                  onSuccess: () => toast.success("Pipeline đã resume"),
+                });
               }}
             >
               <Play /> Resume pipeline
@@ -99,8 +114,7 @@ export function CommandPalette() {
             <CommandItem
               onSelect={() => {
                 setOpen(false);
-                pausePipeline();
-                toast("Pipeline đã pause", { description: "Click resume để tiếp tục" });
+                pauseM.mutate(undefined, { onSuccess: () => toast("Pipeline đã pause") });
               }}
             >
               <Pause /> Pause pipeline

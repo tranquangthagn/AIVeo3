@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { toast } from "sonner";
 import { Check, Key, Music, Wallet, Loader2, Save } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
@@ -8,8 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Slider } from "@/components/ui/slider";
-import { useAppStore } from "@/store/use-app-store";
-import { delay } from "@/lib/fake-api";
+import { usePatchSettings, useSettingsQuery } from "@/lib/queries";
 
 const apiKeys = [
   { name: "Anthropic (Claude)", status: "connected" },
@@ -18,26 +16,25 @@ const apiKeys = [
   { name: "TikTok API", status: "connected" },
 ];
 
+const CRITERIA = ["hook", "visual", "audio", "caption", "trend"] as const;
+
 export function SettingsPage() {
-  const weights = useAppStore((s) => s.weights);
-  const setWeights = useAppStore((s) => s.setWeights);
-  const autoApprove = useAppStore((s) => s.autoApprove);
-  const setAutoApprove = useAppStore((s) => s.setAutoApprove);
-  const budget = useAppStore((s) => s.budget);
-  const setBudget = useAppStore((s) => s.setBudget);
-  const [saving, setSaving] = useState(false);
+  const { data: settings, isLoading } = useSettingsQuery();
+  const patchMut = usePatchSettings();
 
-  const total = weights.hook + weights.visual + weights.audio + weights.caption + weights.trend;
+  if (isLoading || !settings) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await delay(null, 500);
-      toast.success("Settings đã được lưu");
-    } finally {
-      setSaving(false);
-    }
-  };
+  const weights = settings.weights;
+  const total = CRITERIA.reduce((s, k) => s + (weights[k] ?? 0), 0);
+
+  const updateWeight = (key: string, value: number) =>
+    patchMut.mutate({ weights: { ...weights, [key]: value } });
 
   return (
     <>
@@ -47,9 +44,12 @@ export function SettingsPage() {
           title="Settings"
           description="API keys, budget, scoring rubric"
           actions={
-            <Button size="sm" disabled={saving} onClick={handleSave}>
-              {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Save changes
+            <Button
+              size="sm"
+              onClick={() => toast.success("Settings auto-saved khi bạn đổi giá trị")}
+            >
+              <Save className="h-4 w-4" />
+              Auto-save enabled
             </Button>
           }
         />
@@ -84,7 +84,7 @@ export function SettingsPage() {
                       size="sm"
                       className="h-7 text-xs"
                       onClick={() =>
-                        toast.info(`${k.name} connect flow — sẽ có khi tích hợp backend`)
+                        toast.info(`${k.name} connect flow — sẽ có khi tích hợp thật`)
                       }
                     >
                       {k.status === "connected" ? "Update" : "Connect"}
@@ -105,24 +105,24 @@ export function SettingsPage() {
                 <Label className="text-xs">Daily cap ($)</Label>
                 <Input
                   type="number"
-                  value={budget.daily}
-                  onChange={(e) => setBudget({ daily: Number(e.target.value) })}
+                  value={settings.budget_daily}
+                  onChange={(e) => patchMut.mutate({ budget_daily: Number(e.target.value) })}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Monthly cap ($)</Label>
                 <Input
                   type="number"
-                  value={budget.monthly}
-                  onChange={(e) => setBudget({ monthly: Number(e.target.value) })}
+                  value={settings.budget_monthly}
+                  onChange={(e) => patchMut.mutate({ budget_monthly: Number(e.target.value) })}
                 />
               </div>
               <div className="space-y-1.5">
                 <Label className="text-xs">Alert at (%)</Label>
                 <Input
                   type="number"
-                  value={budget.alertAt}
-                  onChange={(e) => setBudget({ alertAt: Number(e.target.value) })}
+                  value={settings.budget_alert_at}
+                  onChange={(e) => patchMut.mutate({ budget_alert_at: Number(e.target.value) })}
                 />
               </div>
             </div>
@@ -143,17 +143,17 @@ export function SettingsPage() {
               </span>
             </div>
             <div className="space-y-5 p-5">
-              {(["hook", "visual", "audio", "caption", "trend"] as const).map((key) => (
+              {CRITERIA.map((key) => (
                 <div key={key} className="grid grid-cols-[120px_1fr_60px] items-center gap-4">
                   <Label className="text-sm capitalize">{key}</Label>
                   <Slider
-                    value={[weights[key]]}
+                    value={[weights[key] ?? 0]}
                     max={100}
                     step={5}
-                    onValueChange={(v) => setWeights({ [key]: v[0] })}
+                    onValueChange={(v) => updateWeight(key, v[0])}
                   />
                   <span className="font-mono text-xs tabular-nums text-right">
-                    {weights[key]}%
+                    {weights[key] ?? 0}%
                   </span>
                 </div>
               ))}
@@ -161,15 +161,18 @@ export function SettingsPage() {
                 <div className="grid grid-cols-[120px_1fr_60px] items-center gap-4">
                   <Label className="text-sm">Auto-approve ≥</Label>
                   <Slider
-                    value={[autoApprove]}
+                    value={[settings.auto_approve_threshold]}
                     max={100}
                     step={5}
-                    onValueChange={(v) => setAutoApprove(v[0])}
+                    onValueChange={(v) => patchMut.mutate({ auto_approve_threshold: v[0] })}
                   />
-                  <span className="font-mono text-xs tabular-nums text-right">{autoApprove}</span>
+                  <span className="font-mono text-xs tabular-nums text-right">
+                    {settings.auto_approve_threshold}
+                  </span>
                 </div>
                 <p className="mt-2 text-[11px] text-muted-foreground">
-                  Video có AI Score ≥ {autoApprove} sẽ được auto-approve, không cần review thủ công.
+                  Video có AI Score ≥ {settings.auto_approve_threshold} sẽ được auto-approve, không
+                  cần review thủ công.
                 </p>
               </div>
             </div>

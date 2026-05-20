@@ -1,5 +1,5 @@
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { toast } from "sonner";
 import {
   ArrowLeft,
@@ -28,11 +28,19 @@ import { Slider } from "@/components/ui/slider";
 import { Separator } from "@/components/ui/separator";
 import { ScoreRing } from "@/components/review/score-ring";
 import { ScoreBadge, scoreLevel } from "@/components/review/score-badge";
-import { type ScoreBreakdown } from "@/lib/mock-data";
+import { type ScoreBreakdown, type VideoJob } from "@/lib/mock-data";
 import { cn, formatDuration } from "@/lib/utils";
 import { ShimmerButton } from "@/components/magicui/shimmer-button";
-import { useAppStore } from "@/store/use-app-store";
-import { suggestHashtags, regenerateScene, delay } from "@/lib/fake-api";
+import { api } from "@/lib/api";
+import {
+  useApproveJob,
+  useDeleteClip,
+  useJobQuery,
+  useJobsQuery,
+  usePatchJob,
+  useRegenerateClip,
+  useRejectJob,
+} from "@/lib/queries";
 
 const criteriaLabels: Record<keyof ScoreBreakdown, string> = {
   hook: "Hook (3s đầu)",
@@ -46,30 +54,33 @@ export function ReviewDetailPage() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const queue = useAppStore((s) => s.reviewQueue);
-  const approveJob = useAppStore((s) => s.approveJob);
-  const rejectJob = useAppStore((s) => s.rejectJob);
-  const saveJobDraft = useAppStore((s) => s.saveJobDraft);
-  const removeClip = useAppStore((s) => s.removeClip);
+  const { data: job, isLoading } = useJobQuery(id);
+  const { data: queue = [] } = useJobsQuery({ status: "review" });
 
-  const job = queue.find((v) => v.id === id);
-  const currentIdx = queue.findIndex((v) => v.id === id);
-  const nextJob = queue[(currentIdx + 1) % Math.max(queue.length, 1)];
+  const approveMut = useApproveJob();
+  const rejectMut = useRejectJob();
+  const patchMut = usePatchJob();
+  const regenMut = useRegenerateClip();
+  const deleteMut = useDeleteClip();
 
   const [musicVolume, setMusicVolume] = useState([30]);
   const [voiceSpeed, setVoiceSpeed] = useState([100]);
-  const [caption, setCaption] = useState(job?.caption ?? "");
-  const [hashtags, setHashtags] = useState<string[]>(job?.hashtags ?? []);
-  const [savingDraft, setSavingDraft] = useState(false);
+  const [caption, setCaption] = useState("");
+  const [hashtags, setHashtags] = useState<string[]>([]);
   const [suggesting, setSuggesting] = useState(false);
-  const [regenClipId, setRegenClipId] = useState<string | null>(null);
-  const [approving, setApproving] = useState(false);
 
-  // Sync state when job changes
   useEffect(() => {
     setCaption(job?.caption ?? "");
     setHashtags(job?.hashtags ?? []);
   }, [job?.id]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
 
   if (!job) {
     return (
@@ -86,10 +97,14 @@ export function ReviewDetailPage() {
     );
   }
 
+  const currentIdx = queue.findIndex((v) => v.id === job.id);
+  const nextJob =
+    currentIdx >= 0 && queue.length > 1 ? queue[(currentIdx + 1) % queue.length] : null;
+
   const handleSuggestHashtags = async () => {
     setSuggesting(true);
     try {
-      const tags = await suggestHashtags(hashtags);
+      const { hashtags: tags } = await api.suggestHashtags(hashtags);
       setHashtags([...hashtags, ...tags]);
       toast.success(`AI gợi ý ${tags.length} hashtag mới`);
     } finally {
@@ -97,57 +112,72 @@ export function ReviewDetailPage() {
     }
   };
 
-  const handleRegenScene = async (clipId: string) => {
-    setRegenClipId(clipId);
-    try {
-      await regenerateScene();
-      toast.success("Scene đã được re-generate", { description: "Visual nhiễu đã được fix." });
-    } finally {
-      setRegenClipId(null);
-    }
+  const handleRegenScene = (clipId: string) => {
+    regenMut.mutate(
+      { jobId: job.id, clipId },
+      {
+        onSuccess: () =>
+          toast.success("Scene đã được re-generate", {
+            description: "Visual nhiễu đã được fix.",
+          }),
+        onError: () => toast.error("Re-gen failed"),
+      },
+    );
   };
 
-  const handleSaveDraft = async () => {
-    setSavingDraft(true);
-    try {
-      await delay(null, 500);
-      saveJobDraft(job.id, { caption, hashtags });
-      toast.success("Draft đã được lưu");
-    } finally {
-      setSavingDraft(false);
-    }
+  const handleRemoveClip = (clipId: string) => {
+    deleteMut.mutate(
+      { jobId: job.id, clipId },
+      { onSuccess: () => toast("Clip đã được xoá") },
+    );
   };
 
-  const handleApprove = async () => {
-    setApproving(true);
-    try {
-      await delay(null, 800);
-      saveJobDraft(job.id, { caption, hashtags });
-      approveJob(job.id);
-      toast.success("✅ Đã publish lên TikTok!", {
-        description: `${job.title} — sẽ live trong vài giây`,
-      });
-      if (queue.length > 1) {
-        navigate(`/review/${nextJob.id}`);
-      } else {
-        navigate("/review");
-      }
-    } finally {
-      setApproving(false);
-    }
+  const handleSaveDraft = () => {
+    patchMut.mutate(
+      { id: job.id, patch: { caption, hashtags } },
+      {
+        onSuccess: () => toast.success("Draft đã được lưu"),
+        onError: () => toast.error("Save failed"),
+      },
+    );
+  };
+
+  const handleApprove = () => {
+    patchMut.mutate(
+      { id: job.id, patch: { caption, hashtags } },
+      {
+        onSuccess: () => {
+          approveMut.mutate(
+            { id: job.id },
+            {
+              onSuccess: () => {
+                toast.success("✅ Đã publish lên TikTok!", {
+                  description: `${job.title} — sẽ live trong vài giây`,
+                });
+                if (nextJob) navigate(`/review/${nextJob.id}`);
+                else navigate("/review");
+              },
+              onError: () => toast.error("Approve failed"),
+            },
+          );
+        },
+      },
+    );
   };
 
   const handleReject = () => {
-    rejectJob(job.id);
-    toast(`Đã reject ${job.id}`, {
-      description: "Video đã được lưu vào library với status rejected",
+    rejectMut.mutate(job.id, {
+      onSuccess: () => {
+        toast(`Đã reject ${job.id}`, {
+          description: "Video đã được lưu vào library với status rejected",
+        });
+        if (nextJob) navigate(`/review/${nextJob.id}`);
+        else navigate("/review");
+      },
     });
-    if (queue.length > 1) {
-      navigate(`/review/${nextJob.id}`);
-    } else {
-      navigate("/review");
-    }
   };
+
+  const approving = approveMut.isPending || patchMut.isPending;
 
   return (
     <>
@@ -155,7 +185,7 @@ export function ReviewDetailPage() {
         title={job.title}
         description={`Reviewing ${job.id} · AI Score ${job.aiScore}`}
         actions={
-          queue.length > 1 ? (
+          nextJob ? (
             <Link to={`/review/${nextJob.id}`}>
               <Button variant="outline" size="sm">
                 Skip
@@ -190,12 +220,9 @@ export function ReviewDetailPage() {
             />
             <CustomTools
               clips={job.clips ?? []}
-              regenClipId={regenClipId}
+              regenClipId={regenMut.isPending ? regenMut.variables?.clipId ?? null : null}
               onRegen={handleRegenScene}
-              onRemove={(clipId) => {
-                removeClip(job.id, clipId);
-                toast(`Clip đã được xoá`);
-              }}
+              onRemove={handleRemoveClip}
               musicVolume={musicVolume}
               setMusicVolume={setMusicVolume}
               voiceSpeed={voiceSpeed}
@@ -211,8 +238,12 @@ export function ReviewDetailPage() {
 
         <div className="sticky bottom-0 mt-8 -mx-6 border-t border-border bg-background/95 backdrop-blur-xl px-6 py-3">
           <div className="mx-auto flex max-w-7xl items-center justify-end gap-2">
-            <Button variant="ghost" size="sm" onClick={handleReject}>
-              <Trash2 className="h-4 w-4" />
+            <Button variant="ghost" size="sm" onClick={handleReject} disabled={rejectMut.isPending}>
+              {rejectMut.isPending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4" />
+              )}
               Reject
             </Button>
             <Button
@@ -223,19 +254,20 @@ export function ReviewDetailPage() {
               <RefreshCw className="h-4 w-4" />
               Re-generate all
             </Button>
-            <Button variant="outline" size="sm" disabled={savingDraft} onClick={handleSaveDraft}>
-              {savingDraft ? (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={patchMut.isPending}
+              onClick={handleSaveDraft}
+            >
+              {patchMut.isPending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
               ) : (
                 <Save className="h-4 w-4" />
               )}
               Save draft
             </Button>
-            <ShimmerButton
-              className="text-sm"
-              onClick={handleApprove}
-              disabled={approving}
-            >
+            <ShimmerButton className="text-sm" onClick={handleApprove} disabled={approving}>
               {approving ? (
                 <Loader2 className="h-3.5 w-3.5 animate-spin" />
               ) : (
@@ -355,7 +387,7 @@ function CustomTools({
   voiceSpeed,
   setVoiceSpeed,
 }: {
-  clips: NonNullable<ReturnType<typeof useAppStore.getState>["reviewQueue"][number]["clips"]>;
+  clips: NonNullable<VideoJob["clips"]>;
   regenClipId: string | null;
   onRegen: (id: string) => void;
   onRemove: (id: string) => void;
@@ -447,7 +479,9 @@ function CustomTools({
             </button>
           </div>
           <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>{clips.length} scene · tổng {clips.reduce((s, c) => s + c.duration, 0)}s</span>
+            <span>
+              {clips.length} scene · tổng {clips.reduce((s, c) => s + c.duration, 0)}s
+            </span>
           </div>
         </TabsContent>
         <TabsContent value="audio" className="mt-4 space-y-4">
@@ -534,11 +568,7 @@ function AudioRow({
   );
 }
 
-function AIScorePanel({
-  job,
-}: {
-  job: ReturnType<typeof useAppStore.getState>["reviewQueue"][number];
-}) {
+function AIScorePanel({ job }: { job: VideoJob }) {
   const breakdown = job.scoreBreakdown;
   if (!breakdown) return null;
   const level = scoreLevel(job.aiScore);

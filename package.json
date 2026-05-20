@@ -1,0 +1,19 @@
+{
+  "name": "aiveo3",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AIVEO3 — AI video pipeline (backend + frontend monorepo)",
+  "scripts": {
+    "dev": "concurrently -n BE,FE -c blue,magenta --kill-others-on-fail \"npm:dev:back\" \"npm:dev:front\"",
+    "dev:back": "cd backend && .venv\\Scripts\\python.exe -m uvicorn app.main:app --reload --port 8000 --no-access-log --log-level warning",
+    "dev:front": "cd frontend && npm run dev",
+    "setup": "npm run setup:back && npm run setup:front",
+    "setup:back": "cd backend && py -m venv .venv && .venv\\Scripts\\python.exe -m pip install --upgrade pip && .venv\\Scripts\\python.exe -m pip install -r requirements.txt",
+    "setup:front": "cd frontend && npm install",
+    "build": "cd frontend && npm run build",
+    "reset:db": "cd backend && del aiveo3.db"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2"
+  }
+}

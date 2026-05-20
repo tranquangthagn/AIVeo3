@@ -1,6 +1,5 @@
-import { useState } from "react";
 import { toast } from "sonner";
-import { Save, Play, Loader2 } from "lucide-react";
+import { Play, Loader2 } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { PageHeader } from "@/components/layout/page-header";
 import { Card } from "@/components/ui/card";
@@ -9,8 +8,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Badge } from "@/components/ui/badge";
-import { useAppStore } from "@/store/use-app-store";
-import { delay } from "@/lib/fake-api";
+import {
+  useConfigQuery,
+  useGenerateNow,
+  usePatchConfig,
+} from "@/lib/queries";
 
 const tones = ["Formal", "Casual", "Funny", "Edu"] as const;
 const dayLabels: Record<string, string> = {
@@ -24,25 +26,27 @@ const dayLabels: Record<string, string> = {
 };
 
 export function PipelineConfigPage() {
-  const config = useAppStore((s) => s.config);
-  const setConfig = useAppStore((s) => s.setConfig);
-  const generateNow = useAppStore((s) => s.generateNow);
-  const [saving, setSaving] = useState(false);
+  const { data: config, isLoading } = useConfigQuery();
+  const patchMut = usePatchConfig();
+  const generate = useGenerateNow();
 
-  const handleSave = async () => {
-    setSaving(true);
-    try {
-      await delay(null, 500);
-      toast.success("Config đã được lưu");
-    } finally {
-      setSaving(false);
-    }
-  };
+  if (isLoading || !config) {
+    return (
+      <div className="flex items-center justify-center h-full text-muted-foreground">
+        <Loader2 className="h-5 w-5 animate-spin" />
+      </div>
+    );
+  }
 
-  const handleSaveAndRun = async () => {
-    await handleSave();
-    generateNow();
-    toast.success("Pipeline đã trigger 1 video mới");
+  const update = (partial: Record<string, unknown>) => patchMut.mutate(partial);
+
+  const handleSaveAndRun = () => {
+    generate.mutate(
+      {},
+      {
+        onSuccess: () => toast.success("Pipeline đã trigger 1 video mới"),
+      },
+    );
   };
 
   return (
@@ -51,18 +55,12 @@ export function PipelineConfigPage() {
       <div className="mx-auto max-w-5xl px-6 pb-12 pt-2">
         <PageHeader
           title="Pipeline configuration"
-          description="Cấu hình cách AI agent tạo content"
+          description="Cấu hình cách AI agent tạo content — auto-save khi đổi giá trị"
           actions={
-            <>
-              <Button variant="outline" size="sm" disabled={saving} onClick={handleSave}>
-                {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-                Save
-              </Button>
-              <Button size="sm" onClick={handleSaveAndRun}>
-                <Play className="h-4 w-4" />
-                Save & Run now
-              </Button>
-            </>
+            <Button size="sm" onClick={handleSaveAndRun}>
+              <Play className="h-4 w-4" />
+              Run now
+            </Button>
           }
         />
 
@@ -71,13 +69,13 @@ export function PipelineConfigPage() {
             <Field label="Niche" hint="Topic chính agent sẽ tập trung">
               <Input
                 value={config.niche}
-                onChange={(e) => setConfig({ niche: e.target.value })}
+                onChange={(e) => update({ niche: e.target.value })}
               />
             </Field>
             <Field label="Target audience">
               <Input
                 value={config.audience}
-                onChange={(e) => setConfig({ audience: e.target.value })}
+                onChange={(e) => update({ audience: e.target.value })}
               />
             </Field>
             <Field label="Tone">
@@ -85,7 +83,7 @@ export function PipelineConfigPage() {
                 {tones.map((t) => (
                   <button
                     key={t}
-                    onClick={() => setConfig({ tone: t })}
+                    onClick={() => update({ tone: t })}
                     className={`rounded-md border px-3 py-1.5 text-xs ${
                       config.tone === t
                         ? "border-primary/50 bg-primary/10 text-primary"
@@ -107,7 +105,7 @@ export function PipelineConfigPage() {
                 <Badge
                   variant="outline"
                   className="cursor-pointer"
-                  onClick={() => toast.info("Chức năng add channel sẽ có ở phase 2")}
+                  onClick={() => toast.info("Chức năng add channel sẽ có ở phase sau")}
                 >
                   + add
                 </Badge>
@@ -120,7 +118,7 @@ export function PipelineConfigPage() {
               <div className="flex items-center gap-2 text-sm">
                 <Switch
                   checked={!config.paused}
-                  onCheckedChange={(v) => setConfig({ paused: !v })}
+                  onCheckedChange={(v) => update({ paused: !v })}
                 />
                 <span>{config.paused ? "Pipeline đang paused" : "Auto cron đang chạy"}</span>
               </div>
@@ -134,7 +132,7 @@ export function PipelineConfigPage() {
                     onChange={(e) => {
                       const next = [...config.slots];
                       next[i] = e.target.value;
-                      setConfig({ slots: next });
+                      update({ slots: next });
                     }}
                     className="w-24"
                   />
@@ -143,7 +141,7 @@ export function PipelineConfigPage() {
                   variant="outline"
                   size="sm"
                   className="h-9"
-                  onClick={() => setConfig({ slots: [...config.slots, "12:00"] })}
+                  onClick={() => update({ slots: [...config.slots, "12:00"] })}
                 >
                   + add
                 </Button>
@@ -154,7 +152,7 @@ export function PipelineConfigPage() {
                 {(Object.keys(config.days) as Array<keyof typeof config.days>).map((k) => (
                   <button
                     key={k}
-                    onClick={() => setConfig({ days: { ...config.days, [k]: !config.days[k] } })}
+                    onClick={() => update({ days: { ...config.days, [k]: !config.days[k] } })}
                     className={`h-9 w-9 rounded-md border text-xs font-medium uppercase ${
                       config.days[k]
                         ? "bg-primary/10 border-primary/50 text-primary"
@@ -172,7 +170,7 @@ export function PipelineConfigPage() {
                 <Input
                   type="number"
                   value={config.quota}
-                  onChange={(e) => setConfig({ quota: Number(e.target.value) })}
+                  onChange={(e) => update({ quota: Number(e.target.value) })}
                   className="w-16"
                 />{" "}
                 video / ngày

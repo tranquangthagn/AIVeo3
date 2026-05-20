@@ -10,12 +10,14 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
-import { useAppStore } from "@/store/use-app-store";
+import { useConfigQuery, useJobsQuery } from "@/lib/queries";
 import { channels } from "@/lib/mock-data";
 
 export function Sidebar() {
-  const pendingCount = useAppStore((s) => s.reviewQueue.length);
-  const paused = useAppStore((s) => s.config.paused);
+  const { data: reviewJobs } = useJobsQuery({ status: "review" });
+  const { data: config } = useConfigQuery();
+  const pendingCount = reviewJobs?.length ?? 0;
+  const paused = config?.paused ?? false;
   const channel = channels[0];
 
   const nav = [

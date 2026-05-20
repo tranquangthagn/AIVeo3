@@ -1,4 +1,3 @@
-import { useMemo } from "react";
 import { Link } from "react-router-dom";
 import { Video, Inbox, DollarSign, TrendingUp, Pause, Play } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
@@ -9,35 +8,44 @@ import { StatCard } from "@/components/dashboard/stat-card";
 import { LivePipeline } from "@/components/dashboard/live-pipeline";
 import { TrendingTopics } from "@/components/dashboard/trending-topics";
 import { ScheduleCard } from "@/components/dashboard/schedule-card";
-import { useAppStore } from "@/store/use-app-store";
 import { formatNumber } from "@/lib/utils";
 import { toast } from "sonner";
+import {
+  useConfigQuery,
+  useGenerateNow,
+  useJobsQuery,
+  useLiveJobsQuery,
+  usePausePipeline,
+  useResumePipeline,
+  useSettingsQuery,
+} from "@/lib/queries";
+
+const ALL_STATUSES = "published,approved,rejected,review";
 
 export function DashboardPage() {
-  const reviewQueue = useAppStore((s) => s.reviewQueue);
-  const library = useAppStore((s) => s.library);
-  const livePipeline = useAppStore((s) => s.livePipeline);
-  const paused = useAppStore((s) => s.config.paused);
-  const quota = useAppStore((s) => s.config.quota);
-  const budget = useAppStore((s) => s.budget);
-  const generateNow = useAppStore((s) => s.generateNow);
-  const pausePipeline = useAppStore((s) => s.pausePipeline);
-  const resumePipeline = useAppStore((s) => s.resumePipeline);
+  const { data: reviewJobs = [] } = useJobsQuery({ status: "review" });
+  const { data: library = [] } = useJobsQuery({ status: ALL_STATUSES });
+  const { data: livePipeline = [] } = useLiveJobsQuery();
+  const { data: config } = useConfigQuery();
+  const { data: settings } = useSettingsQuery();
 
-  const generatedToday = useMemo(() => {
-    const today = new Date();
-    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate()).getTime();
-    return library.filter((j) => new Date(j.createdAt).getTime() >= todayStart - 86400000).length;
-  }, [library]);
+  const generate = useGenerateNow();
+  const pauseM = usePausePipeline();
+  const resumeM = useResumePipeline();
 
-  const publishedToday = useMemo(
-    () => library.filter((j) => j.status === "published").length,
-    [library],
-  );
-  const publishedViews = useMemo(
-    () => library.filter((j) => j.status === "published").reduce((s, j) => s + (j.views ?? 0), 0),
-    [library],
-  );
+  const paused = config?.paused ?? false;
+  const quota = config?.quota ?? 5;
+  const budgetDaily = settings?.budget_daily ?? 20;
+
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+  const generatedToday = library.filter(
+    (j) => new Date(j.createdAt).getTime() >= todayStart.getTime() - 86400000,
+  ).length;
+
+  const publishedJobs = library.filter((j) => j.status === "published");
+  const publishedToday = publishedJobs.length;
+  const publishedViews = publishedJobs.reduce((s, j) => s + (j.views ?? 0), 0);
 
   const costToday = livePipeline.length * 1.5 + library.length * 0.3;
 
@@ -62,8 +70,11 @@ export function DashboardPage() {
           description={
             <span>
               {generatedToday}/{quota} gen ·{" "}
-              <Link to="/review" className="text-foreground hover:text-primary underline-offset-2 hover:underline">
-                {reviewQueue.length} chờ duyệt
+              <Link
+                to="/review"
+                className="text-foreground hover:text-primary underline-offset-2 hover:underline"
+              >
+                {reviewJobs.length} chờ duyệt
               </Link>{" "}
               · ${costToday.toFixed(2)} chi phí
             </span>
@@ -75,11 +86,11 @@ export function DashboardPage() {
                 size="sm"
                 onClick={() => {
                   if (paused) {
-                    resumePipeline();
-                    toast.success("Pipeline đã resume");
+                    resumeM.mutate(undefined, {
+                      onSuccess: () => toast.success("Pipeline đã resume"),
+                    });
                   } else {
-                    pausePipeline();
-                    toast("Pipeline paused");
+                    pauseM.mutate(undefined, { onSuccess: () => toast("Pipeline paused") });
                   }
                 }}
               >
@@ -88,12 +99,17 @@ export function DashboardPage() {
               </Button>
               <ShimmerButton
                 className="text-sm"
-                onClick={() => {
-                  generateNow();
-                  toast.success("Đã queue 1 video mới", {
-                    description: "Pipeline bắt đầu generate idea...",
-                  });
-                }}
+                onClick={() =>
+                  generate.mutate(
+                    {},
+                    {
+                      onSuccess: () =>
+                        toast.success("Đã queue 1 video mới", {
+                          description: "Pipeline bắt đầu generate idea...",
+                        }),
+                    },
+                  )
+                }
               >
                 <Play className="h-3.5 w-3.5" />
                 Gen ngay
@@ -114,9 +130,9 @@ export function DashboardPage() {
           <StatCard
             icon={Inbox}
             label="Pending"
-            value={reviewQueue.length}
+            value={reviewJobs.length}
             hint="awaiting review"
-            trend={reviewQueue.length > 0 ? { value: 12, positive: true } : undefined}
+            trend={reviewJobs.length > 0 ? { value: 12, positive: true } : undefined}
           />
           <StatCard
             icon={DollarSign}
@@ -124,7 +140,7 @@ export function DashboardPage() {
             value={costToday}
             decimals={2}
             prefix="$"
-            hint={`/ $${budget.daily} cap (${Math.round((costToday / budget.daily) * 100)}%)`}
+            hint={`/ $${budgetDaily} cap (${Math.round((costToday / budgetDaily) * 100)}%)`}
           />
           <StatCard
             icon={TrendingUp}
@@ -154,21 +170,17 @@ export function DashboardPage() {
 }
 
 function RecentlyPublished() {
-  const library = useAppStore((s) => s.library);
-  const recent = useMemo(
-    () =>
-      library
-        .filter((j) => j.status === "published")
-        .sort((a, b) => +new Date(b.publishedAt ?? b.createdAt) - +new Date(a.publishedAt ?? a.createdAt))
-        .slice(0, 4),
-    [library],
-  );
+  const { data: library = [] } = useJobsQuery({ status: "published", sort: "newest" });
+  const recent = library.slice(0, 4);
 
   return (
     <div className="rounded-lg border border-border bg-card overflow-hidden">
       <div className="flex items-center justify-between border-b border-border px-5 py-3">
         <span className="text-sm font-semibold">Vừa publish</span>
-        <Link to="/library" className="font-mono text-[10px] text-muted-foreground hover:text-foreground">
+        <Link
+          to="/library"
+          className="font-mono text-[10px] text-muted-foreground hover:text-foreground"
+        >
           Xem tất cả →
         </Link>
       </div>

@@ -1,18 +1,16 @@
-import { useMemo } from "react";
-import { Search, Eye, Heart, Inbox } from "lucide-react";
+import { Search, Eye, Heart, Inbox, Loader2 } from "lucide-react";
 import { Topbar } from "@/components/layout/topbar";
 import { PageHeader } from "@/components/layout/page-header";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { ScoreBadge } from "@/components/review/score-badge";
-import { type JobStatus } from "@/lib/mock-data";
 import { cn, formatNumber, timeAgo } from "@/lib/utils";
 import {
   useAppStore,
-  sortLibrary,
   type LibraryFilter,
   type LibrarySort,
 } from "@/store/use-app-store";
+import { useJobsQuery } from "@/lib/queries";
 
 const filters: { key: LibraryFilter; label: string }[] = [
   { key: "all", label: "All" },
@@ -36,8 +34,9 @@ const statusLabel: Record<string, string> = {
   rejected: "Rejected",
 };
 
+const LIBRARY_STATUSES = "published,approved,rejected,review";
+
 export function LibraryPage() {
-  const items = useAppStore((s) => s.library);
   const filter = useAppStore((s) => s.libraryFilter);
   const sort = useAppStore((s) => s.librarySort);
   const search = useAppStore((s) => s.librarySearch);
@@ -45,28 +44,21 @@ export function LibraryPage() {
   const setSort = useAppStore((s) => s.setLibrarySort);
   const setSearch = useAppStore((s) => s.setLibrarySearch);
 
-  const filtered = useMemo(() => {
-    let list = items;
-    if (filter !== "all") list = list.filter((i) => i.status === (filter as JobStatus));
-    if (search.trim()) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (j) =>
-          j.title.toLowerCase().includes(q) ||
-          j.topic.toLowerCase().includes(q) ||
-          (j.caption ?? "").toLowerCase().includes(q),
-      );
-    }
-    return sortLibrary(list, sort);
-  }, [items, filter, sort, search]);
+  // Get all library items (cross-status) for counts
+  const { data: allItems = [] } = useJobsQuery({ status: LIBRARY_STATUSES });
+  const { data: filtered = [], isLoading } = useJobsQuery({
+    status: filter === "all" ? LIBRARY_STATUSES : filter,
+    search: search.trim() || undefined,
+    sort,
+  });
 
   return (
     <>
-      <Topbar title="Library" description={`${items.length} videos total`} />
+      <Topbar title="Library" description={`${allItems.length} videos total`} />
       <div className="mx-auto max-w-7xl px-6 pb-12 pt-2">
         <PageHeader
           title="Asset library"
-          description={`${filtered.length} hiển thị · ${items.length} tổng`}
+          description={`${filtered.length} hiển thị · ${allItems.length} tổng`}
           actions={
             <div className="relative">
               <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
@@ -82,25 +74,25 @@ export function LibraryPage() {
 
         <div className="mb-5 flex flex-wrap items-center gap-2">
           <div className="flex gap-2">
-            {filters.map((f) => (
-              <button
-                key={f.key}
-                onClick={() => setFilter(f.key)}
-                className={cn(
-                  "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
-                  filter === f.key
-                    ? "border-primary/50 bg-primary/10 text-primary"
-                    : "border-border bg-card hover:bg-accent",
-                )}
-              >
-                {f.label}
-                {filter === f.key && f.key !== "all" ? (
-                  <span className="ml-1.5 font-mono text-[10px] opacity-70">
-                    {items.filter((i) => i.status === (f.key as JobStatus)).length}
-                  </span>
-                ) : null}
-              </button>
-            ))}
+            {filters.map((f) => {
+              const count =
+                f.key === "all" ? allItems.length : allItems.filter((i) => i.status === f.key).length;
+              return (
+                <button
+                  key={f.key}
+                  onClick={() => setFilter(f.key)}
+                  className={cn(
+                    "rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+                    filter === f.key
+                      ? "border-primary/50 bg-primary/10 text-primary"
+                      : "border-border bg-card hover:bg-accent",
+                  )}
+                >
+                  {f.label}
+                  <span className="ml-1.5 font-mono text-[10px] opacity-70">{count}</span>
+                </button>
+              );
+            })}
           </div>
           <select
             value={sort}
@@ -115,7 +107,11 @@ export function LibraryPage() {
           </select>
         </div>
 
-        {filtered.length === 0 ? (
+        {isLoading ? (
+          <div className="flex items-center justify-center py-16 text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin" />
+          </div>
+        ) : filtered.length === 0 ? (
           <div className="rounded-lg border border-dashed border-border bg-card/40 p-12 text-center">
             <Inbox className="mx-auto h-10 w-10 text-muted-foreground" />
             <p className="mt-3 text-sm font-medium">Không có kết quả</p>
